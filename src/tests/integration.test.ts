@@ -23,6 +23,7 @@ describeOrSkip("Figma MCP Server Tests", () => {
     server = createServer(
       {
         figmaApiKey,
+        figmaApiKeys: figmaApiKey ? [figmaApiKey] : [],
         figmaOAuthToken: "",
         useOAuth: false,
       },

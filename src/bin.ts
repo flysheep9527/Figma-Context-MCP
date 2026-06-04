@@ -13,6 +13,14 @@ const argv = cli({
       type: String,
       description: "Figma API key (Personal Access Token)",
     },
+    figmaApiKeys: {
+      type: String,
+      description: "Comma or newline separated Figma API keys (Personal Access Tokens)",
+    },
+    figmaApiKeysFile: {
+      type: String,
+      description: "Path to a file containing Figma API keys, one per line or comma-separated",
+    },
     figmaOauthToken: {
       type: String,
       description: "Figma OAuth Bearer token",
@@ -47,6 +55,15 @@ const argv = cli({
       type: String,
       description:
         "Base directory for image downloads. The download tool will only write files within this directory. Defaults to the current working directory.",
+    },
+    cacheDir: {
+      type: String,
+      description:
+        "Directory used to cache fetched Figma data. Defaults to ~/.figma-developer-mcp/cache.",
+    },
+    cacheTtlSeconds: {
+      type: Number,
+      description: "How long cached Figma data stays valid, in seconds. Defaults to 86400.",
     },
     proxy: {
       type: String,

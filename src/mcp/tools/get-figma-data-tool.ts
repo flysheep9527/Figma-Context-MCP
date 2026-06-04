@@ -9,6 +9,7 @@ import {
   type Transport,
 } from "~/telemetry/index.js";
 import { getFigmaData as runGetFigmaData } from "~/services/get-figma-data.js";
+import type { GetFigmaDataCacheOptions } from "~/services/get-figma-data.js";
 import type { OutputFormat } from "~/utils/serialize.js";
 
 const parameters = {
@@ -47,6 +48,7 @@ async function getFigmaData(
   authMode: AuthMode,
   clientInfo: ClientInfo | undefined,
   extra: ToolExtra,
+  cacheOptions?: GetFigmaDataCacheOptions,
 ) {
   try {
     const { fileKey, nodeId: rawNodeId, depth } = parametersSchema.parse(params);
@@ -64,30 +66,36 @@ async function getFigmaData(
     let stopFetchHeartbeat: (() => Promise<void>) | undefined;
     let stopSimplifyHeartbeat: (() => Promise<void>) | undefined;
 
-    const result = await runGetFigmaData(figmaService, { fileKey, nodeId, depth }, outputFormat, {
-      onFetchStart: async () => {
-        await sendProgress(extra, 0, 3, "Fetching design data from Figma API");
-        stopFetchHeartbeat = startProgressHeartbeat(extra, "Waiting for Figma API response");
+    const result = await runGetFigmaData(
+      figmaService,
+      { fileKey, nodeId, depth },
+      outputFormat,
+      {
+        onFetchStart: async () => {
+          await sendProgress(extra, 0, 3, "Fetching design data from Figma API");
+          stopFetchHeartbeat = startProgressHeartbeat(extra, "Waiting for Figma API response");
+        },
+        onFetchComplete: async () => {
+          await stopFetchHeartbeat?.();
+        },
+        onSimplifyStart: async (progress) => {
+          await sendProgress(extra, 1, 3, "Fetched design data, simplifying");
+          stopSimplifyHeartbeat = startProgressHeartbeat(
+            extra,
+            () => `Simplifying design data (${progress.getNodeCount()} nodes processed)`,
+          );
+        },
+        onSimplifyComplete: async () => {
+          await stopSimplifyHeartbeat?.();
+        },
+        onSerializeStart: async () => {
+          await sendProgress(extra, 2, 3, "Simplified design, serializing response");
+        },
+        onComplete: (outcome) =>
+          captureGetFigmaDataCall(outcome, { transport, authMode, clientInfo }),
       },
-      onFetchComplete: async () => {
-        await stopFetchHeartbeat?.();
-      },
-      onSimplifyStart: async (progress) => {
-        await sendProgress(extra, 1, 3, "Fetched design data, simplifying");
-        stopSimplifyHeartbeat = startProgressHeartbeat(
-          extra,
-          () => `Simplifying design data (${progress.getNodeCount()} nodes processed)`,
-        );
-      },
-      onSimplifyComplete: async () => {
-        await stopSimplifyHeartbeat?.();
-      },
-      onSerializeStart: async () => {
-        await sendProgress(extra, 2, 3, "Simplified design, serializing response");
-      },
-      onComplete: (outcome) =>
-        captureGetFigmaDataCall(outcome, { transport, authMode, clientInfo }),
-    });
+      cacheOptions,
+    );
 
     Logger.log(`Successfully extracted data: ${result.metrics.simplifiedNodeCount} nodes`);
     Logger.log("Sending result to client");

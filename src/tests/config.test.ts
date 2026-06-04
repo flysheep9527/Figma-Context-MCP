@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { envBool, envInt, envStr, resolve } from "~/config.js";
+import { envBool, envInt, envStr, parseApiKeyList, resolve } from "~/config.js";
 
 describe("resolve", () => {
   it("CLI flag wins over env and default", () => {
@@ -85,5 +85,15 @@ describe("envBool", () => {
 
   it("returns undefined when not set", () => {
     expect(envBool("TEST_BOOL_MISSING")).toBeUndefined();
+  });
+});
+
+describe("parseApiKeyList", () => {
+  it("splits comma and newline separated keys", () => {
+    expect(parseApiKeyList("a,b\nc")).toEqual(["a", "b", "c"]);
+  });
+
+  it("drops empty entries and trims whitespace", () => {
+    expect(parseApiKeyList("  a  ,\n , b ")).toEqual(["a", "b"]);
   });
 });

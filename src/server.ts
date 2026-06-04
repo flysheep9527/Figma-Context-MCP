@@ -52,7 +52,14 @@ export async function startServer(config: ServerConfig): Promise<void> {
 
   const telemetryEnabled = telemetry.initTelemetry({
     optOut: config.noTelemetry,
-    redactFromErrors: [config.auth.figmaApiKey, config.auth.figmaOAuthToken],
+    redactFromErrors: [
+      ...(config.auth.figmaApiKeys.length > 0
+        ? config.auth.figmaApiKeys
+        : config.auth.figmaApiKey
+          ? [config.auth.figmaApiKey]
+          : []),
+      config.auth.figmaOAuthToken,
+    ],
   });
 
   if (telemetryEnabled) {
@@ -69,6 +76,8 @@ export async function startServer(config: ServerConfig): Promise<void> {
     outputFormat: config.outputFormat,
     skipImageDownloads: config.skipImageDownloads,
     imageDir: config.imageDir,
+    cacheDir: config.cacheDir,
+    cacheTtlSeconds: config.cacheTtlSeconds,
   };
 
   if (config.isStdioMode) {
@@ -197,7 +206,7 @@ export async function startHttpServer(
       Logger.log(
         `StreamableHTTP endpoint available at http://${host}:${port}/sse (backward compat)`,
       );
-      resolve(server);
+      setImmediate(() => resolve(server));
     });
     server.once("error", (err) => {
       httpServer = null;
@@ -214,6 +223,7 @@ function resolveRequestAuth(
   if (!requestKey) return baseAuth;
   return {
     figmaApiKey: requestKey,
+    figmaApiKeys: [requestKey],
     figmaOAuthToken: "",
     useOAuth: false,
   };
@@ -227,7 +237,7 @@ function getRequestApiKey(req: Request): string | undefined {
 
 export async function stopHttpServer(): Promise<void> {
   if (!httpServer) {
-    throw new Error("HTTP server is not running");
+    return;
   }
 
   // Gracefully close all active MCP connections before tearing down the server

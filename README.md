@@ -56,6 +56,10 @@ The `figma-developer-mcp` server can be configured by adding the following to yo
 
 > NOTE: You will need to create a Figma access token to use this server. Instructions on how to create a Figma API access token can be found [here](https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens).
 
+If you have multiple PATs, you can pass them as a comma or newline separated list with `--figma-api-keys` or `FIGMA_API_KEYS`. The server will rotate through them on `429` responses and only fail after all tokens are rate limited.
+
+To enable local caching of fetched Figma data, set `--cache-dir` / `FIGMA_CACHE_DIR` and optionally `--cache-ttl-seconds` / `FIGMA_CACHE_TTL_SECONDS`.
+
 ### MacOS / Linux
 
 ```json

@@ -34,6 +34,7 @@ const figmaFileResponse = {
 
 const emptyAuth = {
   figmaApiKey: "",
+  figmaApiKeys: [],
   figmaOAuthToken: "",
   useOAuth: false,
 };
@@ -111,7 +112,7 @@ describe("HTTP header Figma API key authentication", () => {
   it("uses X-Figma-Token from the HTTP request instead of the server API key", async () => {
     await connectClient(
       { "X-Figma-Token": "request-key" },
-      { figmaApiKey: "server-key", figmaOAuthToken: "", useOAuth: false },
+      { figmaApiKey: "server-key", figmaApiKeys: [], figmaOAuthToken: "", useOAuth: false },
     );
 
     const result = await client.request(

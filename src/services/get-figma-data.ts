@@ -10,6 +10,12 @@ import { serializeResult, type OutputFormat } from "~/utils/serialize.js";
 import { wrapForSerialization } from "~/utils/serializable-design.js";
 import { tagError } from "~/utils/error-meta.js";
 import {
+  isFigmaCacheEnabled,
+  readFigmaDataCache,
+  writeFigmaDataCache,
+  type FigmaDataCacheConfig,
+} from "~/services/cache.js";
+import {
   type GetFigmaDataMetrics,
   measureSimplifiedDesign,
   countNamedStyles,
@@ -61,6 +67,8 @@ export type GetFigmaDataHooks = {
   onComplete?: (outcome: GetFigmaDataOutcome) => void;
 };
 
+export type GetFigmaDataCacheOptions = FigmaDataCacheConfig;
+
 /**
  * Shared pipeline for "get figma data": fetch raw response, simplify, serialize.
  * Used by both the MCP `get_figma_data` tool and the `fetch` CLI command, which
@@ -75,6 +83,7 @@ export async function getFigmaData(
   input: GetFigmaDataInput,
   outputFormat: OutputFormat,
   hooks: GetFigmaDataHooks = {},
+  cacheOptions?: GetFigmaDataCacheOptions,
 ): Promise<GetFigmaDataResult> {
   const { fileKey, nodeId, depth } = input;
   const startedAt = Date.now();
@@ -85,6 +94,19 @@ export async function getFigmaData(
   const nodeCounter = { count: 0 };
 
   try {
+    if (cacheOptions && isFigmaCacheEnabled(cacheOptions)) {
+      const cached = await readFigmaDataCache(cacheOptions, {
+        fileKey,
+        nodeId,
+        depth,
+        outputFormat,
+      });
+      if (cached) {
+        metrics = cached.metrics;
+        return { formatted: cached.formatted, metrics: cached.metrics };
+      }
+    }
+
     await hooks.onFetchStart?.();
     let rawResult: { data: GetFileResponse | GetFileNodesResponse; rawSize: number };
     const fetchStart = Date.now();
@@ -154,6 +176,22 @@ export async function getFigmaData(
       simplifyMs,
       serializeMs,
     };
+
+    if (cacheOptions && isFigmaCacheEnabled(cacheOptions)) {
+      try {
+        await writeFigmaDataCache(
+          cacheOptions,
+          { fileKey, nodeId, depth, outputFormat },
+          {
+            formatted,
+            metrics,
+          },
+        );
+      } catch {
+        // Cache writes must never fail the request path.
+      }
+    }
+
     return { formatted, metrics };
   } catch (error) {
     caughtError = error;

@@ -31,7 +31,7 @@ describe("validation reject capture (monkey patch)", () => {
     vi.mocked(telemetry.captureValidationReject).mockClear();
 
     server = createServer(
-      { figmaApiKey: "test-key", figmaOAuthToken: "", useOAuth: false },
+      { figmaApiKey: "test-key", figmaApiKeys: [], figmaOAuthToken: "", useOAuth: false },
       { transport: "stdio" },
     );
     client = new Client({ name: "validation-test-client", version: "1.0.0" });

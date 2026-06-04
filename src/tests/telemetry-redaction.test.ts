@@ -62,7 +62,7 @@ describe("per-request telemetry redaction", () => {
     httpServer = await startHttpServer(
       "127.0.0.1",
       0,
-      { figmaApiKey: "", figmaOAuthToken: "", useOAuth: false },
+      { figmaApiKey: "", figmaApiKeys: [], figmaOAuthToken: "", useOAuth: false },
       {},
     );
     const port = (httpServer.address() as AddressInfo).port;

@@ -4,9 +4,11 @@ import { startHttpServer, stopHttpServer } from "../server.js";
 import type { AddressInfo } from "net";
 import type { FigmaAuthOptions } from "../services/figma.js";
 import { spawn, type ChildProcess } from "child_process";
+import { resolve as resolvePath } from "path";
 
 const dummyAuth: FigmaAuthOptions = {
   figmaApiKey: "test-key-not-used",
+  figmaApiKeys: [],
   figmaOAuthToken: "",
   useOAuth: false,
 };
@@ -185,9 +187,13 @@ describe("Process-level HTTP startup", () => {
   /** Spawn bin.ts and resolve once the server logs that it's listening. */
   function spawnAndWaitForReady(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      child = spawn("tsx", ["src/bin.ts", `--figma-api-key=test-key`, `--port=${TEST_PORT}`], {
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      child = spawn(
+        resolvePath(process.cwd(), "node_modules/.bin/tsx"),
+        ["src/bin.ts", `--figma-api-key=test-key`, `--port=${TEST_PORT}`],
+        {
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
 
       const timeout = setTimeout(() => {
         reject(new Error("Server did not become ready within 15 seconds"));

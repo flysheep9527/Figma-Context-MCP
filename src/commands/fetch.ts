@@ -1,11 +1,15 @@
 import { type Command, command } from "cleye";
+import { resolve as resolvePath } from "path";
 import {
   loadEnvFile,
+  envInt,
+  envStr,
   parseOutputFormat,
   resolveAuth,
   requireGlobalCredentials,
   UsageError,
 } from "~/config.js";
+import { defaultFigmaCacheDir, normalizeFigmaCacheTtl } from "~/services/cache.js";
 import { FigmaService } from "~/services/figma.js";
 import { parseFigmaUrl } from "~/utils/figma-url.js";
 import { authMode, initTelemetry, captureGetFigmaDataCall, shutdown } from "~/telemetry/index.js";
@@ -42,6 +46,14 @@ export const fetchCommand: Command = command(
         type: String,
         description: "Figma API key",
       },
+      figmaApiKeys: {
+        type: String,
+        description: "Comma or newline separated Figma API keys",
+      },
+      figmaApiKeysFile: {
+        type: String,
+        description: "Path to a file containing Figma API keys",
+      },
       figmaOauthToken: {
         type: String,
         description: "Figma OAuth token",
@@ -49,6 +61,14 @@ export const fetchCommand: Command = command(
       env: {
         type: String,
         description: "Path to .env file",
+      },
+      cacheDir: {
+        type: String,
+        description: "Directory used to cache fetched Figma data",
+      },
+      cacheTtlSeconds: {
+        type: Number,
+        description: "How long cached Figma data stays valid, in seconds",
       },
       noTelemetry: {
         type: Boolean,
@@ -74,8 +94,12 @@ async function run(
     json?: boolean;
     format?: string;
     figmaApiKey?: string;
+    figmaApiKeys?: string;
+    figmaApiKeysFile?: string;
     figmaOauthToken?: string;
     env?: string;
+    cacheDir?: string;
+    cacheTtlSeconds?: number;
     noTelemetry?: boolean;
   },
   positionals: string[],
@@ -111,12 +135,25 @@ async function run(
   initTelemetry({
     optOut: flags.noTelemetry,
     immediateFlush: true,
-    redactFromErrors: [auth.figmaApiKey, auth.figmaOAuthToken],
+    redactFromErrors: [
+      ...(auth.figmaApiKeys.length > 0
+        ? auth.figmaApiKeys
+        : auth.figmaApiKey
+          ? [auth.figmaApiKey]
+          : []),
+      auth.figmaOAuthToken,
+    ],
   });
 
   const mode = authMode(auth);
   const outputFormat: OutputFormat =
     parseOutputFormat(flags.format, "--format") ?? (flags.json ? "json" : "yaml");
+  const cacheDir = resolvePath(
+    flags.cacheDir ?? envStr("FIGMA_CACHE_DIR") ?? defaultFigmaCacheDir(),
+  );
+  const cacheTtlSeconds = normalizeFigmaCacheTtl(
+    flags.cacheTtlSeconds ?? envInt("FIGMA_CACHE_TTL_SECONDS") ?? undefined,
+  );
 
   const result = await getFigmaData(
     new FigmaService(auth),
@@ -126,6 +163,7 @@ async function run(
       onComplete: (outcome) =>
         captureGetFigmaDataCall(outcome, { transport: "cli", authMode: mode }),
     },
+    { cacheDir, ttlSeconds: cacheTtlSeconds },
   );
   console.log(result.formatted);
 }

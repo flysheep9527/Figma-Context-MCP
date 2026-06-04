@@ -26,11 +26,20 @@ export type CreateServerOptions = {
   outputFormat?: OutputFormat;
   skipImageDownloads?: boolean;
   imageDir?: string;
+  cacheDir?: string;
+  cacheTtlSeconds?: number;
 };
 
 function createServer(
   authOptions: FigmaAuthOptions,
-  { transport, outputFormat = "yaml", skipImageDownloads = false, imageDir }: CreateServerOptions,
+  {
+    transport,
+    outputFormat = "yaml",
+    skipImageDownloads = false,
+    imageDir,
+    cacheDir,
+    cacheTtlSeconds,
+  }: CreateServerOptions,
 ) {
   const server = new McpServer(serverInfo);
   const figmaService = new FigmaService(authOptions);
@@ -48,6 +57,8 @@ function createServer(
     outputFormat,
     skipImageDownloads,
     imageDir,
+    cacheDir,
+    cacheTtlSeconds,
     getClientInfo,
   });
 
@@ -69,6 +80,8 @@ type RegisterToolsOptions = {
   outputFormat: OutputFormat;
   skipImageDownloads: boolean;
   imageDir?: string;
+  cacheDir?: string;
+  cacheTtlSeconds?: number;
   getClientInfo: () => ClientInfo | undefined;
 };
 
@@ -94,6 +107,9 @@ function registerTools(
         options.authMode,
         options.getClientInfo(),
         extra,
+        options.cacheDir && options.cacheTtlSeconds !== undefined
+          ? { cacheDir: options.cacheDir, ttlSeconds: options.cacheTtlSeconds }
+          : undefined,
       ),
   );
 

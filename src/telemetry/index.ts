@@ -24,6 +24,6 @@ export type {
  */
 export function authMode(auth: FigmaAuthOptions): AuthMode {
   if (auth.useOAuth) return "oauth";
-  if (auth.figmaApiKey) return "api_key";
+  if (auth.figmaApiKey || auth.figmaApiKeys.length > 0) return "api_key";
   return "none";
 }

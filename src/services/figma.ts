@@ -13,6 +13,7 @@ import { buildForbiddenMessage, buildRateLimitMessage } from "./errors/index.js"
 
 export type FigmaAuthOptions = {
   figmaApiKey: string;
+  figmaApiKeys: string[];
   figmaOAuthToken: string;
   useOAuth: boolean;
 };
@@ -25,30 +26,55 @@ type SvgOptions = {
 
 export class FigmaService {
   private readonly apiKey: string;
+  private readonly apiKeys: string[];
   private readonly oauthToken: string;
   private readonly useOAuth: boolean;
   private readonly baseUrl = "https://api.figma.com/v1";
 
-  constructor({ figmaApiKey, figmaOAuthToken, useOAuth }: FigmaAuthOptions) {
+  constructor({ figmaApiKey, figmaApiKeys, figmaOAuthToken, useOAuth }: FigmaAuthOptions) {
     this.apiKey = figmaApiKey || "";
+    this.apiKeys = figmaApiKeys.length > 0 ? [...figmaApiKeys] : this.apiKey ? [this.apiKey] : [];
     this.oauthToken = figmaOAuthToken || "";
     this.useOAuth = !!useOAuth && !!this.oauthToken;
   }
 
-  private getAuthHeaders(): Record<string, string> {
+  private getAuthAttempts(): Array<{
+    label: string;
+    headers: Record<string, string>;
+    secret: string;
+    isRateLimitCandidate: boolean;
+  }> {
     if (this.useOAuth) {
       Logger.log("Using OAuth Bearer token for authentication");
-      return { Authorization: `Bearer ${this.oauthToken}` };
+      return [
+        {
+          label: "OAuth Bearer token",
+          headers: { Authorization: `Bearer ${this.oauthToken}` },
+          secret: this.oauthToken,
+          isRateLimitCandidate: false,
+        },
+      ];
     }
 
-    if (!this.apiKey) {
+    if (this.apiKeys.length === 0) {
       throw new Error(
         "Figma API authentication is required. Configure FIGMA_API_KEY or FIGMA_OAUTH_TOKEN on the server, or send X-Figma-Token on the HTTP request.",
       );
     }
 
-    Logger.log("Using Personal Access Token for authentication");
-    return { "X-Figma-Token": this.apiKey };
+    if (this.apiKeys.length === 1) {
+      Logger.log("Using Personal Access Token for authentication");
+    } else {
+      Logger.log(`Using ${this.apiKeys.length} Personal Access Tokens for authentication`);
+    }
+
+    return this.apiKeys.map((token, index) => ({
+      label:
+        this.apiKeys.length === 1 ? "Personal Access Token" : `Personal Access Token #${index + 1}`,
+      headers: { "X-Figma-Token": token },
+      secret: token,
+      isRateLimitCandidate: true,
+    }));
   }
 
   /**
@@ -76,28 +102,48 @@ export class FigmaService {
    * continue to use `request` unchanged.
    */
   private async requestWithSize<T>(endpoint: string): Promise<{ data: T; rawSize: number }> {
-    try {
-      Logger.log(`Calling ${this.baseUrl}${endpoint}`);
-      const headers = this.getAuthHeaders();
+    const authAttempts = this.getAuthAttempts();
+    const redactFromResponseBody = authAttempts.map((attempt) => attempt.secret);
+    const rateLimitErrors: Error[] = [];
 
-      return await fetchJSON<T & { status?: number }>(`${this.baseUrl}${endpoint}`, {
-        headers,
-        redactFromResponseBody: [this.apiKey, this.oauthToken],
-      });
-    } catch (error) {
-      const meta = getErrorMeta(error);
-      if (meta.http_status === 429) {
-        throw new Error(buildRateLimitMessage(error), { cause: error });
+    for (let attemptIndex = 0; attemptIndex < authAttempts.length; attemptIndex += 1) {
+      const attempt = authAttempts[attemptIndex];
+      try {
+        Logger.log(`Calling ${this.baseUrl}${endpoint} with ${attempt.label}`);
+        return await fetchJSON<T & { status?: number }>(`${this.baseUrl}${endpoint}`, {
+          headers: attempt.headers,
+          redactFromResponseBody,
+        });
+      } catch (error) {
+        const meta = getErrorMeta(error);
+        if (meta.http_status === 429) {
+          if (attempt.isRateLimitCandidate && attemptIndex < authAttempts.length - 1) {
+            rateLimitErrors.push(error as Error);
+            Logger.log(`Token ${attemptIndex + 1} hit the Figma rate limit; trying the next token`);
+            continue;
+          }
+          if (attempt.isRateLimitCandidate && rateLimitErrors.length > 0) {
+            throw new Error(
+              `${buildRateLimitMessage(error)} Exhausted ${authAttempts.length} personal access tokens; all were rate limited.`,
+              { cause: error },
+            );
+          }
+          throw new Error(buildRateLimitMessage(error), { cause: error });
+        }
+        if (meta.http_status === 403) {
+          throw new Error(buildForbiddenMessage(endpoint, error), { cause: error });
+        }
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Failed to make request to Figma API endpoint '${endpoint}': ${errorMessage}`,
+          { cause: error },
+        );
       }
-      if (meta.http_status === 403) {
-        throw new Error(buildForbiddenMessage(endpoint, error), { cause: error });
-      }
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `Failed to make request to Figma API endpoint '${endpoint}': ${errorMessage}`,
-        { cause: error },
-      );
     }
+
+    throw new Error(
+      `Failed to make request to Figma API endpoint '${endpoint}': no valid authentication tokens were available`,
+    );
   }
 
   /**
