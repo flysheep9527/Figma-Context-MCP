@@ -1,5 +1,6 @@
+import os from "os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { envBool, envInt, envStr, parseApiKeyList, resolve } from "~/config.js";
+import { envBool, envInt, envStr, expandTilde, parseApiKeyList, resolve } from "~/config.js";
 
 describe("resolve", () => {
   it("CLI flag wins over env and default", () => {
@@ -95,5 +96,41 @@ describe("parseApiKeyList", () => {
 
   it("drops empty entries and trims whitespace", () => {
     expect(parseApiKeyList("  a  ,\n , b ")).toEqual(["a", "b"]);
+  });
+});
+
+describe("expandTilde", () => {
+  const home = os.homedir();
+
+  it("将 ~ 单独出现时展开为主目录", () => {
+    expect(expandTilde("~")).toBe(home);
+  });
+
+  it("将 ~/ 开头的路径展开为主目录 + 剩余部分", () => {
+    expect(expandTilde("~/foo/bar")).toBe(`${home}/foo/bar`);
+  });
+
+  it("将 ~\\ 开头的 Windows 风格路径展开", () => {
+    expect(expandTilde("~\\foo\\bar")).toBe(`${home}\\foo\\bar`);
+  });
+
+  it("不修改不以 ~ 开头的绝对路径", () => {
+    expect(expandTilde("/absolute/path")).toBe("/absolute/path");
+  });
+
+  it("不修改不以 ~ 开头的相对路径", () => {
+    expect(expandTilde("relative/path")).toBe("relative/path");
+  });
+
+  it("不展开路径中间的 ~", () => {
+    expect(expandTilde("/some/~path")).toBe("/some/~path");
+  });
+
+  it("常见用例：~/.figma_cache 展开正确", () => {
+    expect(expandTilde("~/.figma_cache")).toBe(`${home}/.figma_cache`);
+  });
+
+  it("常见用例：~/Code/project/dist/bin.js 展开正确", () => {
+    expect(expandTilde("~/Code/project/dist/bin.js")).toBe(`${home}/Code/project/dist/bin.js`);
   });
 });

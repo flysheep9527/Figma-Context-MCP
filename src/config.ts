@@ -1,10 +1,22 @@
 import { config as loadEnv } from "dotenv";
 import fs from "fs";
+import os from "os";
 import { resolve as resolvePath } from "path";
 import type { FigmaAuthOptions } from "./services/figma.js";
 import { resolveTelemetryEnabled } from "./telemetry/index.js";
 import { VALID_OUTPUT_FORMATS, isOutputFormat, type OutputFormat } from "./utils/serialize.js";
 import { defaultFigmaCacheDir, normalizeFigmaCacheTtl } from "./services/cache.js";
+
+/**
+ * 将路径中开头的 `~` 展开为用户主目录。
+ * 例如：`~/foo/bar` → `/Users/username/foo/bar`
+ */
+export function expandTilde(filePath: string): string {
+  if (filePath === "~" || filePath.startsWith("~/") || filePath.startsWith("~\\")) {
+    return os.homedir() + filePath.slice(1);
+  }
+  return filePath;
+}
 
 export type Source = "cli" | "env" | "default";
 
@@ -82,7 +94,7 @@ export function parseApiKeyList(value: string | undefined): string[] {
 }
 
 function readApiKeyFile(filePath: string): string[] {
-  const resolvedPath = resolvePath(filePath);
+  const resolvedPath = resolvePath(expandTilde(filePath));
   try {
     return parseApiKeyList(fs.readFileSync(resolvedPath, "utf8"));
   } catch (error) {
@@ -144,7 +156,9 @@ function maskApiKey(key: string): string {
 }
 
 export function loadEnvFile(envPath?: string): string {
-  const envFilePath = envPath ? resolvePath(envPath) : resolvePath(process.cwd(), ".env");
+  const envFilePath = envPath
+    ? resolvePath(expandTilde(envPath))
+    : resolvePath(process.cwd(), ".env");
   loadEnv({ path: envFilePath, override: true });
   return envFilePath;
 }
@@ -219,13 +233,13 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
   );
   const envImageDir = envStr("IMAGE_DIR");
   const imageDir = resolve(
-    flags.imageDir ? resolvePath(flags.imageDir) : undefined,
-    envImageDir ? resolvePath(envImageDir) : undefined,
+    flags.imageDir ? resolvePath(expandTilde(flags.imageDir)) : undefined,
+    envImageDir ? resolvePath(expandTilde(envImageDir)) : undefined,
     process.cwd(),
   );
   const cacheDir = resolve(
-    flags.cacheDir ? resolvePath(flags.cacheDir) : undefined,
-    envStr("FIGMA_CACHE_DIR") ? resolvePath(envStr("FIGMA_CACHE_DIR")!) : undefined,
+    flags.cacheDir ? resolvePath(expandTilde(flags.cacheDir)) : undefined,
+    envStr("FIGMA_CACHE_DIR") ? resolvePath(expandTilde(envStr("FIGMA_CACHE_DIR")!)) : undefined,
     defaultFigmaCacheDir(),
   );
   const cacheTtlSeconds = resolve(
