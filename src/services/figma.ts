@@ -100,11 +100,15 @@ export class FigmaService {
    * can record it for telemetry. Only used by endpoints whose payload size
    * we care about (`getRawFile` / `getRawNode`); image-fetching endpoints
    * continue to use `request` unchanged.
+   *
+   * 多 token 轮换策略：任意 token 遇到任意错误时，自动切换到下一个 token。
+   * 所有 token 均失败后，汇总所有错误对外抛出。
    */
   private async requestWithSize<T>(endpoint: string): Promise<{ data: T; rawSize: number }> {
     const authAttempts = this.getAuthAttempts();
     const redactFromResponseBody = authAttempts.map((attempt) => attempt.secret);
-    const rateLimitErrors: Error[] = [];
+    // 收集每个 token 遇到的错误，用于所有 token 均失败时的汇总报错
+    const attemptErrors: Array<{ label: string; error: unknown }> = [];
 
     for (let attemptIndex = 0; attemptIndex < authAttempts.length; attemptIndex += 1) {
       const attempt = authAttempts[attemptIndex];
@@ -115,19 +119,53 @@ export class FigmaService {
           redactFromResponseBody,
         });
       } catch (error) {
+        attemptErrors.push({ label: attempt.label, error });
         const meta = getErrorMeta(error);
-        if (meta.http_status === 429) {
-          if (attempt.isRateLimitCandidate && attemptIndex < authAttempts.length - 1) {
-            rateLimitErrors.push(error as Error);
-            Logger.log(`Token ${attemptIndex + 1} hit the Figma rate limit; trying the next token`);
-            continue;
-          }
-          if (attempt.isRateLimitCandidate && rateLimitErrors.length > 0) {
+
+        // 若还有下一个 token，记录错误日志后继续尝试
+        if (attemptIndex < authAttempts.length - 1) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          Logger.log(
+            `Token ${attemptIndex + 1} (${attempt.label}) failed with error: ${errorMessage}; trying the next token`,
+          );
+          continue;
+        }
+
+        // ---- 所有 token 均已用尽，构造最终错误 ----
+
+        // 多 token 场景：汇总所有失败信息
+        if (authAttempts.length > 1) {
+          const lastError = error;
+          const lastMeta = meta;
+
+          // 全部限流
+          if (lastMeta.http_status === 429 && attempt.isRateLimitCandidate) {
             throw new Error(
-              `${buildRateLimitMessage(error)} Exhausted ${authAttempts.length} personal access tokens; all were rate limited.`,
-              { cause: error },
+              `${buildRateLimitMessage(lastError)} Exhausted ${authAttempts.length} personal access tokens; all were rate limited.`,
+              { cause: lastError },
             );
           }
+
+          // 全部 403
+          if (lastMeta.http_status === 403) {
+            throw new Error(buildForbiddenMessage(endpoint, lastError), { cause: lastError });
+          }
+
+          // 其他错误：汇总所有 token 的失败摘要后抛出
+          const summary = attemptErrors
+            .map(({ label, error: e }) => {
+              const msg = e instanceof Error ? e.message : String(e);
+              return `  [${label}]: ${msg}`;
+            })
+            .join("\n");
+          throw new Error(
+            `Failed to make request to Figma API endpoint '${endpoint}' after trying all ${authAttempts.length} tokens:\n${summary}`,
+            { cause: lastError },
+          );
+        }
+
+        // 单 token 场景：保持原有精确错误信息
+        if (meta.http_status === 429) {
           throw new Error(buildRateLimitMessage(error), { cause: error });
         }
         if (meta.http_status === 403) {
